@@ -3,8 +3,8 @@ import type {
   RendererContext
 } from 'vscode-notebook-renderer';
 import { OutputLoader } from './outputLoader';
+import { renderLakeGrid } from './lakeGridView';
 import './styles.css';
-const inputs = require('@observablehq/inputs');
 
 
 /**
@@ -29,15 +29,7 @@ export function render(output: IRenderInfo) {
   let data: any = outputLoader.getData();
 
   if (Array.isArray(data)) {
-    // create data table view
-    const table = inputs.table(data, {
-      layout: 'auto',
-      width: 'auto',
-      height: 360,
-    });
-
-    // add table to cell data output container
-    output.container.appendChild(table);
+    renderLakeGrid(output.container, data);
   }
   else {
     // create text output display nodes

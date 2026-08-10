@@ -2,6 +2,35 @@
 
 See [releases](https://github.com/RandomFractals/vscode-data-table/releases) for source code and `vscode-data-table.vsix` extension package download.
 
+## v1.16.2 - [2026-08-10]
+
+- Render column menus in a viewport-level overlay so table scrolling cannot clip them
+- Open menus above or below a header based on available space
+- Add internal menu scrolling for small notebook viewports
+- Close floating menus safely on scroll, outside click and Escape
+
+## v1.16.1 - [2026-08-10]
+
+- Preserve filter operators while their value is being entered
+- Activate Empty and Not empty filters immediately
+- Widen filter operator controls and table columns for readable labels
+
+## v1.16.0 - [2026-08-10]
+
+- Add virtual scrolling for large result sets
+- Add mouse and keyboard cell-range selection with clipboard copy
+- Add column resizing, drag reordering and move actions
+- Add type-aware filter operators for strings, numbers, dates, booleans and null values
+- Add configurable number, date, boolean and text formats
+- Replace text toolbar controls with accessible SVG icons
+
+## v1.15.0 - [2026-08-10]
+
+- Add the LakeGrid notebook renderer with Databricks-inspired table controls
+- Add search, column filters, pinning, visibility controls, pagination and CSV export
+- Show sort and column-menu controls in every table header
+- Add accessible sort state and column-menu behavior
+
 ## v1.14.0 - [2023-10-02]
 
 - [#138](https://github.com/RandomFractals/vscode-data-table/issues/138)

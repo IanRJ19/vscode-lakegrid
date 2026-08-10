@@ -2,7 +2,7 @@
   "name": "vscode-data-table",
   "displayName": "Data Table Renderers",
   "description": "Data Table 🈸, Flat Data Grid 中 & Data Summary 🈷️ Renderers for VSCode Notebook 📓 Cell ⌗ Data Outputs",
-  "version": "1.14.0",
+  "version": "1.16.2",
   "engines": {
     "node": ">16.5.0",
     "vscode": "^1.68.0"
@@ -90,7 +90,7 @@
       {
         "id": "vscode-data-table",
         "entrypoint": "./out/renderer/dataTable.js",
-        "displayName": "Data Table",
+        "displayName": "LakeGrid Table",
         "mimeTypes": [
           "application/json",
           "application/geo+json",

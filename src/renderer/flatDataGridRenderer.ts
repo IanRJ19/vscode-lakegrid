@@ -3,12 +3,8 @@ import type {
   RendererContext
 } from 'vscode-notebook-renderer';
 import { OutputLoader } from './outputLoader';
+import { renderLakeGrid } from './lakeGridView';
 import './styles.css';
-import * as React from 'react';
-import * as ReactDOM from 'react-dom';
-
-// eslint-disable-next-line @typescript-eslint/naming-convention
-const flatUi = require('./flat-ui.js');
 
 /**
  * Notebook cell output render info.
@@ -32,11 +28,7 @@ export function render(output: IRenderInfo) {
   let data: any = outputLoader.getData();
 
   if (Array.isArray(data)) {
-    // render flat data grid
-    ReactDOM.render(
-      React.createElement(flatUi.Grid, {data: data}, null),
-      output.container
-    );
+    renderLakeGrid(output.container, data);
   }
   else {
     // create text output display nodes
