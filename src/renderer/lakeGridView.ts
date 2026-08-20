@@ -193,11 +193,26 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
       const header = document.createElement('th');
       header.scope = 'col';
       header.dataset.column = column.key;
+      header.dataset.gridCell = 'true';
+      header.dataset.rowIndex = '-1';
       header.dataset.columnIndex = String(columnIndex);
-      header.draggable = true;
-      header.title = 'Drag to reorder column';
+      header.tabIndex = -1;
+      header.title = `Select ${column.label} header`;
       setColumnWidth(header, column.width);
       applyPinnedPosition(header, pinnedOffset, pinnedColumns.has(column.key));
+
+      header.addEventListener('mousedown', event => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('button, input, select, .lake-grid__resize-handle')) {
+          startCellSelection(event, {row: -1, column: columnIndex});
+        }
+      });
+      header.addEventListener('mouseenter', () => {
+        if (pointerSelecting) {
+          selectionFocus = {row: -1, column: columnIndex};
+          updateSelectionDisplay();
+        }
+      });
 
       header.addEventListener('dragstart', event => {
         if ((event.target as HTMLElement).closest('.lake-grid__icon-button, input, select, .lake-grid__resize-handle')) {
@@ -237,7 +252,7 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
       const label = createElement('button', 'lake-grid__column-label', column.label);
       label.type = 'button';
       label.draggable = true;
-      label.title = `Sort by ${column.label}`;
+      label.title = `Sort by ${column.label}; drag to reorder`;
       const toggleSort = () => {
         sort = sort?.key === column.key && sort.direction === 'ascending'
           ? {key: column.key, direction: 'descending'}
@@ -796,13 +811,19 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
       return;
     }
     const orderedColumns = getOrderedColumns();
-    const text = activeRows
-      .slice(range.startRow, range.endRow + 1)
-      .map(row => orderedColumns
-        .slice(range.startColumn, range.endColumn + 1)
+    const selectedColumns = orderedColumns.slice(range.startColumn, range.endColumn + 1);
+    const lines: string[] = [];
+    if (range.startRow <= -1 && range.endRow >= -1) {
+      lines.push(selectedColumns.map(column => column.label).join('\t'));
+    }
+    if (range.endRow >= 0) {
+      lines.push(...activeRows
+        .slice(Math.max(0, range.startRow), range.endRow + 1)
+        .map(row => selectedColumns
         .map(column => formatValue(row[column.key], column, columnFormats.get(column.key) ?? 'auto'))
-        .join('\t'))
-      .join('\r\n');
+          .join('\t')));
+    }
+    const text = lines.join('\r\n');
     await copyText(text);
     copyButton.classList.add('is-success');
     window.setTimeout(() => copyButton.classList.remove('is-success'), 700);
@@ -810,12 +831,12 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
 
   function moveSelection(rowDelta: number, columnDelta: number, extend: boolean) {
     const orderedColumns = getOrderedColumns();
-    if (activeRows.length === 0 || orderedColumns.length === 0) {
+    if (orderedColumns.length === 0) {
       return;
     }
     const current = selectionFocus ?? {row: 0, column: 0};
     const next = {
-      row: Math.max(0, Math.min(activeRows.length - 1, current.row + rowDelta)),
+      row: Math.max(-1, Math.min(Math.max(-1, activeRows.length - 1), current.row + rowDelta)),
       column: Math.max(0, Math.min(orderedColumns.length - 1, current.column + columnDelta))
     };
     if (!extend || !selectionAnchor) {
@@ -824,7 +845,7 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     selectionFocus = next;
     ensurePositionVisible(next);
     renderViewport(true);
-    const selectedCell = body.querySelector<HTMLElement>(
+    const selectedCell = table.querySelector<HTMLElement>(
       `[data-grid-cell][data-row-index="${next.row}"][data-column-index="${next.column}"]`
     );
     selectedCell?.scrollIntoView({block: 'nearest', inline: 'nearest'});
@@ -832,6 +853,10 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
   }
 
   function ensurePositionVisible(position: GridPosition) {
+    if (position.row === -1) {
+      scroller.scrollTop = 0;
+      return;
+    }
     const rowHeight = getRowHeight();
     const headerHeight = rowHeight * (filtersVisible ? 2 : 1);
     const rowTop = headerHeight + position.row * rowHeight;

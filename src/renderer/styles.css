@@ -359,8 +359,8 @@
   cursor: default !important;
 }
 
-.lake-grid__table thead tr:first-child > th:not(.lake-grid__row-number) {
-  cursor: grab !important;
+.lake-grid__table thead tr:first-child > th[data-grid-cell] {
+  cursor: cell !important;
 }
 
 .lake-grid--resizing,
@@ -594,13 +594,13 @@
   box-shadow: none;
 }
 
-.lake-grid__table tbody td.is-selected,
+.lake-grid__table [data-grid-cell].is-selected,
 .lake-grid__table tbody tr:hover td.is-selected {
-  background: color-mix(in srgb, var(--vscode-focusBorder, #2272b4) 18%, var(--lake-grid-bg));
+  background: color-mix(in srgb, var(--vscode-focusBorder, #2272b4) 18%, var(--lake-grid-bg)) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder, #2272b4) 35%, transparent);
 }
 
-.lake-grid__table tbody td.is-selection-focus {
+.lake-grid__table [data-grid-cell].is-selection-focus {
   position: relative;
   box-shadow: inset 0 0 0 2px var(--vscode-focusBorder, #2272b4) !important;
 }

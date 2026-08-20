@@ -2,6 +2,12 @@
 
 See [releases](https://github.com/RandomFractals/vscode-data-table/releases) for source code and `vscode-data-table.vsix` extension package download.
 
+## v1.16.3 - [2026-08-20]
+
+- Allow column headers to participate in mouse and keyboard range selections
+- Include selected column labels when copying a range that contains headers
+- Highlight selected headers consistently with data cells
+
 ## v1.16.2 - [2026-08-10]
 
 - Render column menus in a viewport-level overlay so table scrolling cannot clip them
