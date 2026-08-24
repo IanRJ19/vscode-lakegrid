@@ -2,6 +2,13 @@
 
 See [releases](https://github.com/RandomFractals/vscode-data-table/releases) for source code and `vscode-data-table.vsix` extension package download.
 
+## v1.16.4 - [2026-08-24]
+
+- Replace inline filters with a Databricks-inspired floating filter editor
+- Add searchable multi-value filters, active-filter chips and enable/disable controls
+- Select the complete filtered table from the blank row-number corner
+- Preserve active filters when the editor is closed
+
 ## v1.16.3 - [2026-08-20]
 
 - Allow column headers to participate in mouse and keyboard range selections

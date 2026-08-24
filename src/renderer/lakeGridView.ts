@@ -3,7 +3,7 @@ type ColumnType = 'boolean' | 'date' | 'integer' | 'number' | 'object' | 'string
 type SortDirection = 'ascending' | 'descending';
 type FilterOperator = 'after' | 'before' | 'contains' | 'empty' | 'equals' | 'greater' |
   'greaterOrEqual' | 'less' | 'lessOrEqual' | 'notContains' | 'notEmpty' | 'notEquals' |
-  'on' | 'startsWith';
+  'notOneOf' | 'on' | 'oneOf' | 'startsWith';
 type ColumnFormat = 'auto' | 'date' | 'datetime' | 'fixed2' | 'json' | 'locale' |
   'lowercase' | 'percent' | 'raw' | 'uppercase' | 'yesNo';
 type IconName = 'chevronDown' | 'columns' | 'copy' | 'density' | 'download' | 'filter' |
@@ -24,6 +24,8 @@ interface SortState {
 interface ColumnFilter {
   operator: FilterOperator;
   value: string;
+  values: string[];
+  enabled: boolean;
 }
 
 interface GridPosition {
@@ -59,14 +61,13 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
   let activeRows: GridRow[] = [];
   let searchQuery = '';
   let sort: SortState | undefined;
-  let filtersVisible = false;
   let searchVisible = false;
   let selectionAnchor: GridPosition | undefined;
   let selectionFocus: GridPosition | undefined;
   let pointerSelecting = false;
   let draggedColumnKey: string | undefined;
   let activeMenu: HTMLDivElement | undefined;
-  let activeMenuHeader: HTMLTableCellElement | undefined;
+  let activeMenuAnchor: HTMLElement | undefined;
   let activeMenuPointerDismiss: ((event: PointerEvent) => void) | undefined;
   let activeMenuKeyDismiss: ((event: KeyboardEvent) => void) | undefined;
   let renderedStart = -1;
@@ -94,6 +95,8 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
 
   const searchButton = iconButton('search', 'Search table');
   const filterButton = iconButton('filter', 'Filter columns');
+  filterButton.setAttribute('aria-haspopup', 'dialog');
+  filterButton.setAttribute('aria-expanded', 'false');
   const columnsButton = iconButton('columns', 'Choose columns');
   const densityButton = iconButton('density', 'Toggle compact rows');
   const copyButton = iconButton('copy', 'Copy selected cells');
@@ -111,6 +114,10 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     densityButton,
     copyButton
   );
+
+  const activeFiltersBar = createElement('div', 'lake-grid__active-filters');
+  activeFiltersBar.hidden = true;
+  activeFiltersBar.setAttribute('aria-label', 'Active filters');
 
   const scroller = createElement('div', 'lake-grid__scroller');
   scroller.tabIndex = 0;
@@ -133,7 +140,7 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
   const viewportInfo = createElement('span', 'lake-grid__viewport-info');
   footer.append(downloadButton, footerCount, selectionInfo, footerSpacer, viewportInfo);
 
-  container.append(toolbar, columnsPanel, scroller, footer);
+  container.append(toolbar, columnsPanel, activeFiltersBar, scroller, footer);
 
   function getOrderedColumns(): GridColumn[] {
     return columns
@@ -184,7 +191,21 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     const rowNumberHeader = document.createElement('th');
     rowNumberHeader.className = 'lake-grid__row-number lake-grid__row-number--header';
     rowNumberHeader.scope = 'col';
-    rowNumberHeader.textContent = '#';
+    rowNumberHeader.textContent = '';
+    rowNumberHeader.tabIndex = 0;
+    rowNumberHeader.dataset.selectAll = 'true';
+    rowNumberHeader.title = 'Select entire table';
+    rowNumberHeader.setAttribute('aria-label', 'Select entire table');
+    rowNumberHeader.addEventListener('mousedown', event => {
+      event.preventDefault();
+      selectAllCells();
+    });
+    rowNumberHeader.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectAllCells();
+      }
+    });
     headerRow.appendChild(rowNumberHeader);
 
     const orderedColumns = getOrderedColumns();
@@ -304,58 +325,12 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     });
     head.appendChild(headerRow);
 
-    if (filtersVisible) {
-      const filterRow = document.createElement('tr');
-      filterRow.className = 'lake-grid__filter-row';
-      const blank = document.createElement('th');
-      blank.className = 'lake-grid__row-number';
-      filterRow.appendChild(blank);
-      pinnedOffset = 42;
-
-      orderedColumns.forEach((column, columnIndex) => {
-        const cell = document.createElement('th');
-        cell.dataset.columnIndex = String(columnIndex);
-        setColumnWidth(cell, column.width);
-        applyPinnedPosition(cell, pinnedOffset, pinnedColumns.has(column.key));
-        const filter = columnFilters.get(column.key) ?? {operator: defaultOperator(column.type), value: ''};
-        const filterEditor = createElement('div', 'lake-grid__filter-editor');
-        const operatorSelect = document.createElement('select');
-        operatorSelect.className = 'lake-grid__filter-operator';
-        operatorSelect.title = `Filter operator for ${column.label}`;
-        for (const option of getOperatorOptions(column.type)) {
-          const element = document.createElement('option');
-          element.value = option.value;
-          element.textContent = option.label;
-          element.selected = option.value === filter.operator;
-          operatorSelect.appendChild(element);
-        }
-        operatorSelect.addEventListener('change', () => {
-          const operator = operatorSelect.value as FilterOperator;
-          updateColumnFilter(column, operator, filterNeedsValue(operator) ? filter.value : '', true);
-        });
-        filterEditor.appendChild(operatorSelect);
-
-        if (filterNeedsValue(filter.operator)) {
-          const valueEditor = createFilterValueEditor(column, filter.value, value => {
-            updateColumnFilter(column, operatorSelect.value as FilterOperator, value, false);
-          });
-          valueEditor.dataset.filterColumn = column.key;
-          filterEditor.appendChild(valueEditor);
-        }
-        cell.appendChild(filterEditor);
-        filterRow.appendChild(cell);
-        if (pinnedColumns.has(column.key)) {
-          pinnedOffset += column.width;
-        }
-      });
-      head.appendChild(filterRow);
-    }
   }
 
   function renderViewport(force = false) {
     const orderedColumns = getOrderedColumns();
     const rowHeight = getRowHeight();
-    const headerHeight = rowHeight * (filtersVisible ? 2 : 1);
+    const headerHeight = rowHeight;
     const dataScrollTop = Math.max(0, scroller.scrollTop - headerHeight);
     const viewportHeight = scroller.clientHeight || 430;
     const visibleCount = Math.ceil(viewportHeight / rowHeight);
@@ -509,15 +484,7 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     const menu = createMenu(header);
     menu.append(
       menuItem('Copy column name', 'copy', async () => copyText(column.label)),
-      menuItem('Filter…', 'filter', () => {
-        filtersVisible = true;
-        filterButton.classList.add('is-active');
-        renderHeader();
-        renderViewport(true);
-        const input = Array.from(head.querySelectorAll<HTMLElement>('[data-filter-column]'))
-          .find(editor => editor.dataset.filterColumn === column.key);
-        input?.focus();
-      }),
+      menuItem('Filter…', 'filter', () => openFilterPanel(header, column)),
       menuItem('Format…', 'format', () => openFormatMenu(header, column)),
       menuItem(pinnedColumns.has(column.key) ? 'Unpin column' : 'Pin column', 'pin', () => {
         if (pinnedColumns.has(column.key)) {
@@ -552,14 +519,14 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     return menu;
   }
 
-  function showMenu(menu: HTMLDivElement, header: HTMLTableCellElement) {
+  function showMenu(menu: HTMLDivElement, anchor: HTMLElement, focusSelector = '.lake-grid__menu-item') {
     menu.classList.add('lake-grid__menu--portal');
     menu.style.visibility = 'hidden';
     document.body.appendChild(menu);
     activeMenu = menu;
-    activeMenuHeader = header;
-    header.classList.add('lake-grid__menu-open');
-    header.querySelector('.lake-grid__column-menu-button')?.setAttribute('aria-expanded', 'true');
+    activeMenuAnchor = anchor;
+    anchor.classList.add('lake-grid__menu-open');
+    getMenuTrigger(anchor)?.setAttribute('aria-expanded', 'true');
 
     menuCompletionHandlers.set(menu, () => {
       if (activeMenu === menu) {
@@ -571,25 +538,25 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
 
     activeMenuPointerDismiss = event => {
       const target = event.target as Node | null;
-      if (target && !menu.contains(target) && !header.contains(target)) {
+      if (target && !menu.contains(target) && !anchor.contains(target)) {
         closeMenus();
       }
     };
     activeMenuKeyDismiss = event => {
       if (event.key === 'Escape') {
         closeMenus();
-        header.querySelector<HTMLButtonElement>('.lake-grid__column-menu-button')?.focus();
+        getMenuTrigger(anchor)?.focus();
       }
     };
     document.addEventListener('pointerdown', activeMenuPointerDismiss, true);
     document.addEventListener('keydown', activeMenuKeyDismiss, true);
 
     window.requestAnimationFrame(() => {
-      if (activeMenu !== menu || !header.isConnected) {
+      if (activeMenu !== menu || !anchor.isConnected) {
         closeMenus();
         return;
       }
-      const headerRect = header.getBoundingClientRect();
+      const headerRect = anchor.getBoundingClientRect();
       const menuWidth = menu.offsetWidth || 190;
       const menuHeight = menu.offsetHeight;
       const viewportWidth = document.documentElement.clientWidth;
@@ -606,7 +573,7 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
       menu.style.left = `${left}px`;
       menu.style.top = `${top}px`;
       menu.style.visibility = 'visible';
-      menu.querySelector<HTMLButtonElement>('.lake-grid__menu-item')?.focus({preventScroll: true});
+      menu.querySelector<HTMLElement>(focusSelector)?.focus({preventScroll: true});
     });
   }
 
@@ -631,7 +598,7 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
   }
 
   function closeMenus() {
-    if (!activeMenu && !activeMenuHeader && !activeMenuPointerDismiss && !activeMenuKeyDismiss) {
+    if (!activeMenu && !activeMenuAnchor && !activeMenuPointerDismiss && !activeMenuKeyDismiss) {
       return;
     }
     if (activeMenuPointerDismiss) {
@@ -644,28 +611,307 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
       menuCompletionHandlers.delete(activeMenu);
       activeMenu.remove();
     }
-    activeMenuHeader?.classList.remove('lake-grid__menu-open');
-    activeMenuHeader?.querySelector('.lake-grid__column-menu-button')?.setAttribute('aria-expanded', 'false');
+    activeMenuAnchor?.classList.remove('lake-grid__menu-open');
+    getMenuTrigger(activeMenuAnchor)?.setAttribute('aria-expanded', 'false');
     activeMenu = undefined;
-    activeMenuHeader = undefined;
+    activeMenuAnchor = undefined;
     activeMenuPointerDismiss = undefined;
     activeMenuKeyDismiss = undefined;
   }
 
-  function updateColumnFilter(column: GridColumn, operator: FilterOperator, value: string, renderTableHeader: boolean) {
-    columnFilters.set(column.key, {operator, value});
+  function getMenuTrigger(anchor: HTMLElement | undefined): HTMLButtonElement | undefined {
+    if (!anchor) {
+      return undefined;
+    }
+    return anchor.matches('button')
+      ? anchor as HTMLButtonElement
+      : anchor.querySelector<HTMLButtonElement>('.lake-grid__column-menu-button') ?? undefined;
+  }
+
+  function updateColumnFilter(column: GridColumn, filter: ColumnFilter) {
+    columnFilters.set(column.key, filter);
     activeRows = computeActiveRows();
     resetSelection();
     scroller.scrollTop = 0;
     renderedStart = -1;
     renderedEnd = -1;
-    if (renderTableHeader) {
-      renderHeader();
-    } else {
-      const index = getOrderedColumns().findIndex(item => item.key === column.key);
-      head.querySelector(`th[data-column-index="${index}"] .lake-grid__column-menu-button`)
-        ?.classList.toggle('is-filtered', isFilterActive(columnFilters.get(column.key)));
+    updateFilterIndicators();
+    updateFilterPanelSummary();
+    renderViewport(true);
+  }
+
+  function updateFilterIndicators() {
+    head.querySelectorAll<HTMLElement>('th[data-column]').forEach(header => {
+      const filter = header.dataset.column ? columnFilters.get(header.dataset.column) : undefined;
+      header.querySelector('.lake-grid__column-menu-button')
+        ?.classList.toggle('is-filtered', isFilterActive(filter));
+    });
+    const activeCount = Array.from(columnFilters.values()).filter(isFilterActive).length;
+    filterButton.classList.toggle('is-active', activeCount > 0);
+    filterButton.title = activeCount > 0 ? `Filter columns (${activeCount} active)` : 'Filter columns';
+    filterButton.setAttribute('aria-label', filterButton.title);
+    renderActiveFilters();
+  }
+
+  function renderActiveFilters() {
+    activeFiltersBar.replaceChildren();
+    const activeFilters = Array.from(columnFilters.entries())
+      .map(([key, filter]) => ({column: columns.find(item => item.key === key), filter}))
+      .filter((item): item is {column: GridColumn; filter: ColumnFilter} => Boolean(item.column && isFilterActive(item.filter)));
+    activeFiltersBar.hidden = activeFilters.length === 0;
+
+    for (const {column, filter} of activeFilters) {
+      const chip = createElement('div', 'lake-grid__filter-chip');
+      const edit = createElement('button', 'lake-grid__filter-chip-label', describeFilter(column, filter));
+      edit.type = 'button';
+      edit.title = `Edit filter: ${describeFilter(column, filter)}`;
+      edit.addEventListener('click', event => {
+        event.stopPropagation();
+        openFilterPanel(filterButton, column);
+      });
+
+      const remove = createElement('button', 'lake-grid__filter-chip-remove', '×');
+      remove.type = 'button';
+      remove.title = `Remove filter for ${column.label}`;
+      remove.setAttribute('aria-label', remove.title);
+      remove.addEventListener('click', event => {
+        event.stopPropagation();
+        columnFilters.delete(column.key);
+        refreshFilters();
+      });
+      chip.append(edit, remove);
+      activeFiltersBar.appendChild(chip);
     }
+  }
+
+  function describeFilter(column: GridColumn, filter: ColumnFilter): string {
+    const operator = getOperatorOptions(column.type).find(option => option.value === filter.operator)?.label ?? filter.operator;
+    const sentenceOperator = operator.length > 1
+      ? operator.charAt(0).toLocaleLowerCase() + operator.slice(1)
+      : operator;
+    let displayedValue = '';
+    if (filter.operator === 'oneOf' || filter.operator === 'notOneOf') {
+      const displayedValues = filter.values.slice(0, 2).map(value => value.length === 0 ? '(Empty)' : value);
+      displayedValue = displayedValues.join(', ');
+      if (filter.values.length > displayedValues.length) {
+        displayedValue += ` +${filter.values.length - displayedValues.length}`;
+      }
+    } else if (filterNeedsValue(filter.operator)) {
+      displayedValue = filter.value;
+    }
+    return `${column.label} ${sentenceOperator}${displayedValue ? ` ${displayedValue}` : ''}`;
+  }
+
+  function updateFilterPanelSummary() {
+    const activeCount = Array.from(columnFilters.values()).filter(isFilterActive).length;
+    const summary = activeMenu?.querySelector<HTMLElement>('.lake-grid__filter-summary');
+    if (summary) {
+      summary.textContent = `${activeCount} active filter${activeCount === 1 ? '' : 's'}`;
+    }
+    const clearAll = activeMenu?.querySelector<HTMLButtonElement>('[data-clear-all-filters]');
+    if (clearAll) {
+      clearAll.disabled = columnFilters.size === 0;
+    }
+    const clearColumn = activeMenu?.querySelector<HTMLButtonElement>('[data-clear-column-filter]');
+    if (clearColumn) {
+      clearColumn.disabled = !columnFilters.has(clearColumn.dataset.clearColumnFilter ?? '');
+    }
+  }
+
+  function openFilterPanel(anchor: HTMLElement, initialColumn: GridColumn) {
+    closeMenus();
+    const panel = createElement('div', 'lake-grid__menu lake-grid__filter-panel');
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Column filter');
+    renderFilterPanel(panel, initialColumn);
+    showMenu(panel, anchor, '.lake-grid__filter-column');
+  }
+
+  function renderFilterPanel(panel: HTMLDivElement, column: GridColumn) {
+    panel.replaceChildren();
+    const filter = columnFilters.get(column.key) ?? createDefaultFilter(column.type);
+
+    const statusRow = createElement('div', 'lake-grid__filter-status');
+    const switchLabel = createElement('label', 'lake-grid__filter-switch');
+    const enabledSwitch = document.createElement('input');
+    enabledSwitch.type = 'checkbox';
+    enabledSwitch.checked = filter.enabled;
+    enabledSwitch.setAttribute('role', 'switch');
+    enabledSwitch.setAttribute('aria-label', `Enable filter for ${column.label}`);
+    const switchTrack = createElement('span', 'lake-grid__switch-track');
+    const switchText = createElement('span', 'lake-grid__switch-text', filter.enabled ? 'Enabled' : 'Disabled');
+    switchLabel.append(enabledSwitch, switchTrack, switchText);
+    enabledSwitch.addEventListener('change', () => {
+      filter.enabled = enabledSwitch.checked;
+      switchText.textContent = filter.enabled ? 'Enabled' : 'Disabled';
+      updateColumnFilter(column, filter);
+    });
+
+    const clearButton = createElement('button', 'lake-grid__filter-clear', 'Clear');
+    clearButton.type = 'button';
+    clearButton.dataset.clearColumnFilter = column.key;
+    clearButton.disabled = !columnFilters.has(column.key);
+    clearButton.addEventListener('click', () => {
+      columnFilters.delete(column.key);
+      refreshFilters();
+      renderFilterPanel(panel, column);
+      panel.querySelector<HTMLElement>('.lake-grid__filter-column')?.focus();
+    });
+    statusRow.append(switchLabel, clearButton);
+
+    const columnSelect = document.createElement('select');
+    columnSelect.className = 'lake-grid__filter-control lake-grid__filter-column';
+    columnSelect.title = 'Column';
+    columnSelect.setAttribute('aria-label', 'Filter column');
+    for (const item of columns) {
+      const option = document.createElement('option');
+      option.value = item.key;
+      option.textContent = `${typeLabel(item.type)}  ${item.label}`;
+      option.selected = item.key === column.key;
+      columnSelect.appendChild(option);
+    }
+    columnSelect.addEventListener('change', () => {
+      const selectedColumn = columns.find(item => item.key === columnSelect.value);
+      if (selectedColumn) {
+        renderFilterPanel(panel, selectedColumn);
+        panel.querySelector<HTMLElement>('.lake-grid__filter-column')?.focus();
+      }
+    });
+
+    const operatorSelect = document.createElement('select');
+    operatorSelect.className = 'lake-grid__filter-control lake-grid__filter-operator';
+    operatorSelect.title = `Filter operator for ${column.label}`;
+    operatorSelect.setAttribute('aria-label', `Filter operator for ${column.label}`);
+    for (const option of getOperatorOptions(column.type)) {
+      const element = document.createElement('option');
+      element.value = option.value;
+      element.textContent = option.label;
+      element.selected = option.value === filter.operator;
+      operatorSelect.appendChild(element);
+    }
+    operatorSelect.addEventListener('change', () => {
+      filter.operator = operatorSelect.value as FilterOperator;
+      updateColumnFilter(column, filter);
+      renderFilterPanel(panel, column);
+      panel.querySelector<HTMLElement>('.lake-grid__filter-operator')?.focus();
+    });
+
+    panel.append(statusRow, columnSelect, operatorSelect);
+    if (filterNeedsValue(filter.operator)) {
+      panel.appendChild(filter.operator === 'oneOf' || filter.operator === 'notOneOf'
+        ? createMultiValueEditor(column, filter)
+        : createSingleValueEditor(column, filter));
+    }
+
+    const activeCount = Array.from(columnFilters.values()).filter(isFilterActive).length;
+    const footer = createElement('div', 'lake-grid__filter-footer');
+    footer.appendChild(createElement(
+      'span', 'lake-grid__filter-summary', `${activeCount} active filter${activeCount === 1 ? '' : 's'}`
+    ));
+    const clearAll = createElement('button', 'lake-grid__filter-clear', 'Clear all');
+    clearAll.type = 'button';
+    clearAll.dataset.clearAllFilters = 'true';
+    clearAll.disabled = columnFilters.size === 0;
+    clearAll.addEventListener('click', () => {
+      columnFilters.clear();
+      refreshFilters();
+      renderFilterPanel(panel, column);
+    });
+    footer.appendChild(clearAll);
+    panel.appendChild(footer);
+  }
+
+  function createMultiValueEditor(column: GridColumn, filter: ColumnFilter): HTMLDivElement {
+    const editor = createElement('div', 'lake-grid__multi-value');
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'lake-grid__filter-control lake-grid__filter-value-search';
+    search.placeholder = filter.values.length > 0 ? `${filter.values.length} selected` : 'Type or select';
+    search.setAttribute('aria-label', `Search values for ${column.label}`);
+
+    const values = getUniqueFilterValues(column);
+    const actions = createElement('div', 'lake-grid__value-actions');
+    const selectAll = createElement('button', 'lake-grid__filter-clear', 'Select all');
+    selectAll.type = 'button';
+    const clearValues = createElement('button', 'lake-grid__filter-clear', 'Clear');
+    clearValues.type = 'button';
+    actions.append(selectAll, clearValues);
+
+    const list = createElement('div', 'lake-grid__value-list');
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-label', `Values for ${column.label}`);
+    const selected = new Set(filter.values);
+    const valueRows: Array<{label: HTMLLabelElement; text: string}> = [];
+    for (const value of values) {
+      const label = createElement('label', 'lake-grid__value-option');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = selected.has(value);
+      checkbox.value = value;
+      const text = value.length === 0 ? '(Empty)' : value;
+      label.append(checkbox, createElement('span', '', text));
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          selected.add(value);
+        } else {
+          selected.delete(value);
+        }
+        filter.values = Array.from(selected);
+        search.placeholder = filter.values.length > 0 ? `${filter.values.length} selected` : 'Type or select';
+        updateColumnFilter(column, filter);
+      });
+      valueRows.push({label, text: text.toLocaleLowerCase()});
+      list.appendChild(label);
+    }
+    if (values.length === 0) {
+      list.appendChild(createElement('div', 'lake-grid__value-empty', 'No values'));
+    }
+    search.addEventListener('input', () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      valueRows.forEach(item => item.label.hidden = Boolean(query && !item.text.includes(query)));
+    });
+    selectAll.addEventListener('click', () => {
+      filter.values = [...values];
+      updateColumnFilter(column, filter);
+      renderFilterPanel(panelFor(editor), column);
+    });
+    clearValues.addEventListener('click', () => {
+      filter.values = [];
+      updateColumnFilter(column, filter);
+      renderFilterPanel(panelFor(editor), column);
+    });
+    editor.append(search, actions, list);
+    return editor;
+  }
+
+  function createSingleValueEditor(column: GridColumn, filter: ColumnFilter): HTMLElement {
+    const editor = createFilterValueEditor(column, filter.value, value => {
+      filter.value = value;
+      updateColumnFilter(column, filter);
+    });
+    editor.classList.add('lake-grid__filter-control');
+    editor.setAttribute('aria-label', `Filter value for ${column.label}`);
+    return editor;
+  }
+
+  function getUniqueFilterValues(column: GridColumn): string[] {
+    return Array.from(new Set(rows.map(row => valueToText(row[column.key]))))
+      .sort((left, right) => left.localeCompare(right, undefined, {numeric: true, sensitivity: 'base'}))
+      .slice(0, 500);
+  }
+
+  function panelFor(element: HTMLElement): HTMLDivElement {
+    return element.closest<HTMLDivElement>('.lake-grid__filter-panel') as HTMLDivElement;
+  }
+
+  function refreshFilters() {
+    activeRows = computeActiveRows();
+    resetSelection();
+    scroller.scrollTop = 0;
+    renderedStart = -1;
+    renderedEnd = -1;
+    updateFilterIndicators();
+    updateFilterPanelSummary();
     renderViewport(true);
   }
 
@@ -765,8 +1011,27 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     window.addEventListener('mouseup', finish);
   }
 
+  function selectAllCells() {
+    const orderedColumns = getOrderedColumns();
+    if (orderedColumns.length === 0) {
+      return;
+    }
+    selectionAnchor = {row: -1, column: 0};
+    selectionFocus = {
+      row: Math.max(-1, activeRows.length - 1),
+      column: orderedColumns.length - 1
+    };
+    pointerSelecting = false;
+    renderViewport(true);
+    scroller.focus({preventScroll: true});
+  }
+
   function updateSelectionDisplay() {
     const range = getSelectionRange();
+    const orderedColumns = getOrderedColumns();
+    const entireTableSelected = Boolean(range && orderedColumns.length > 0 &&
+      range.startRow === -1 && range.endRow >= activeRows.length - 1 &&
+      range.startColumn === 0 && range.endColumn >= orderedColumns.length - 1);
     container.querySelectorAll<HTMLElement>('[data-grid-cell]').forEach(cell => {
       const row = Number(cell.dataset.rowIndex);
       const column = Number(cell.dataset.columnIndex);
@@ -776,6 +1041,11 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
       cell.classList.toggle('is-selection-focus', Boolean(selectionFocus &&
         row === selectionFocus.row && column === selectionFocus.column));
     });
+    container.querySelectorAll<HTMLElement>('.lake-grid__row-number').forEach(cell => {
+      cell.classList.toggle('is-selected', entireTableSelected);
+    });
+    const selectAllCorner = head.querySelector<HTMLElement>('[data-select-all]');
+    selectAllCorner?.setAttribute('aria-selected', String(entireTableSelected));
 
     if (range) {
       const cellCount = (range.endRow - range.startRow + 1) * (range.endColumn - range.startColumn + 1);
@@ -858,7 +1128,7 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
       return;
     }
     const rowHeight = getRowHeight();
-    const headerHeight = rowHeight * (filtersVisible ? 2 : 1);
+    const headerHeight = rowHeight;
     const rowTop = headerHeight + position.row * rowHeight;
     const rowBottom = rowTop + rowHeight;
     if (rowTop < scroller.scrollTop + headerHeight) {
@@ -888,13 +1158,17 @@ export function renderLakeGrid(container: HTMLElement, sourceData: unknown[]) {
     searchQuery = searchInput.value;
     refreshData(false, true);
   });
-  filterButton.addEventListener('click', () => {
-    filtersVisible = !filtersVisible;
-    filterButton.classList.toggle('is-active', filtersVisible);
-    if (!filtersVisible) {
-      columnFilters.clear();
+  filterButton.addEventListener('click', event => {
+    event.stopPropagation();
+    if (activeMenu?.classList.contains('lake-grid__filter-panel') && activeMenuAnchor === filterButton) {
+      closeMenus();
+      return;
     }
-    refreshData(true, true);
+    const firstFilteredKey = Array.from(columnFilters.keys())[0];
+    const column = columns.find(item => item.key === firstFilteredKey) ?? columns[0];
+    if (column) {
+      openFilterPanel(filterButton, column);
+    }
   });
   columnsButton.addEventListener('click', event => {
     event.stopPropagation();
@@ -1029,16 +1303,28 @@ function typeLabel(type: ColumnType): string {
 }
 
 function defaultOperator(type: ColumnType): FilterOperator {
-  return type === 'string' || type === 'object' ? 'contains' : 'equals';
+  if (type === 'string' || type === 'object' || type === 'boolean') {
+    return 'oneOf';
+  }
+  return type === 'date' ? 'on' : 'equals';
+}
+
+function createDefaultFilter(type: ColumnType): ColumnFilter {
+  return {operator: defaultOperator(type), value: '', values: [], enabled: true};
 }
 
 function getOperatorOptions(type: ColumnType): OperatorOption[] {
+  const membership: OperatorOption[] = [
+    {value: 'oneOf', label: 'Is one of'},
+    {value: 'notOneOf', label: 'Is not one of'}
+  ];
   const emptiness: OperatorOption[] = [
     {value: 'empty', label: 'Empty'},
     {value: 'notEmpty', label: 'Not empty'}
   ];
   if (type === 'integer' || type === 'number') {
     return [
+      ...membership,
       {value: 'equals', label: '='},
       {value: 'notEquals', label: '≠'},
       {value: 'greater', label: '>'},
@@ -1050,6 +1336,7 @@ function getOperatorOptions(type: ColumnType): OperatorOption[] {
   }
   if (type === 'date') {
     return [
+      ...membership,
       {value: 'on', label: 'On'},
       {value: 'before', label: 'Before'},
       {value: 'after', label: 'After'},
@@ -1057,9 +1344,10 @@ function getOperatorOptions(type: ColumnType): OperatorOption[] {
     ];
   }
   if (type === 'boolean') {
-    return [{value: 'equals', label: '='}, {value: 'notEquals', label: '≠'}, ...emptiness];
+    return [...membership, {value: 'equals', label: '='}, {value: 'notEquals', label: '≠'}, ...emptiness];
   }
   return [
+    ...membership,
     {value: 'contains', label: 'Contains'},
     {value: 'notContains', label: 'Not contains'},
     {value: 'equals', label: 'Equals'},
@@ -1074,7 +1362,12 @@ function filterNeedsValue(operator: FilterOperator): boolean {
 }
 
 function isFilterActive(filter: ColumnFilter | undefined): boolean {
-  return Boolean(filter && (!filterNeedsValue(filter.operator) || filter.value.trim().length > 0));
+  return Boolean(filter && filter.enabled && (
+    !filterNeedsValue(filter.operator) ||
+    (filter.operator === 'oneOf' || filter.operator === 'notOneOf'
+      ? filter.values.length > 0
+      : filter.value.trim().length > 0)
+  ));
 }
 
 function matchesFilter(value: unknown, filter: ColumnFilter, type: ColumnType): boolean {
@@ -1084,6 +1377,11 @@ function matchesFilter(value: unknown, filter: ColumnFilter, type: ColumnType): 
   }
   if (filter.operator === 'notEmpty') {
     return !empty;
+  }
+  if (filter.operator === 'oneOf' || filter.operator === 'notOneOf') {
+    const normalizedValue = valueToText(value).toLocaleLowerCase();
+    const included = filter.values.some(item => item.toLocaleLowerCase() === normalizedValue);
+    return filter.operator === 'oneOf' ? included : !included;
   }
   if (empty) {
     return false;
